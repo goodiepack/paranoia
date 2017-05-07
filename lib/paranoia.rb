@@ -1,45 +1,24 @@
 require 'active_record' unless defined? ActiveRecord
 
 module Paranoia
-  @@default_sentinel_value = nil
-
-  # Change default_sentinel_value in a rails initializer
-  def self.default_sentinel_value=(val)
-    @@default_sentinel_value = val
-  end
-
-  def self.default_sentinel_value
-    @@default_sentinel_value
-  end
-
   def self.included(klazz)
     klazz.extend Query
     klazz.extend Callbacks
   end
 
   module Query
-    def paranoid? ; true ; end
+    def paranoid?
+      true
+    end
 
     def with_deleted
-      if ActiveRecord::VERSION::STRING >= "4.1"
-        return unscope where: paranoia_column
-      end
-      all.tap { |x| x.default_scoped = false }
+      unscope where: paranoia_column
     end
 
     def only_deleted
-      if paranoia_sentinel_value.nil?
-        return with_deleted.where.not(paranoia_column => paranoia_sentinel_value)
-      end
-      # if paranoia_sentinel_value is not null, then it is possible that
-      # some deleted rows will hold a null value in the paranoia column
-      # these will not match != sentinel value because "NULL != value" is
-      # NULL under the sql standard
-      # Scoping with the table_name is mandatory to avoid ambiguous errors when joining tables.
-      scoped_quoted_paranoia_column = "#{self.table_name}.#{connection.quote_column_name(paranoia_column)}"
-      with_deleted.where("#{scoped_quoted_paranoia_column} IS NULL OR #{scoped_quoted_paranoia_column} != ?", paranoia_sentinel_value)
+      with_deleted.where.not("#{paranoia_column} >= NOW()")
     end
-    alias_method :deleted, :only_deleted
+    alias deleted only_deleted
 
     def restore(id_or_ids, opts = {})
       ids = Array(id_or_ids).flatten
@@ -78,7 +57,7 @@ module Paranoia
       run_callbacks(:destroy) do
         @_disable_counter_cache = deleted?
         result = delete
-        next result unless result && ActiveRecord::VERSION::STRING >= '4.2'
+        next result unless result
         each_counter_cached_associations do |association|
           foreign_key = association.reflection.foreign_key.to_sym
           next if destroyed_by_association && destroyed_by_association.foreign_key.to_sym == foreign_key
@@ -108,17 +87,12 @@ module Paranoia
     self.class.transaction do
       run_callbacks(:restore) do
         recovery_window_range = get_recovery_window_range(opts)
-        # Fixes a bug where the build would error because attributes were frozen.
-        # This only happened on Rails versions earlier than 4.1.
-        noop_if_frozen = ActiveRecord.version < Gem::Version.new("4.1")
-        if within_recovery_window?(recovery_window_range) && ((noop_if_frozen && !@attributes.frozen?) || !noop_if_frozen)
+        if within_recovery_window?(recovery_window_range) && !@attributes.frozen?
           @_disable_counter_cache = !deleted?
-          write_attribute paranoia_column, paranoia_sentinel_value
+          write_attribute paranoia_column, nil
           update_columns(paranoia_restore_attributes)
           each_counter_cached_associations do |association|
-            if send(association.reflection.name)
-              association.increment_counters
-            end
+            association.increment_counters if send(association.reflection.name)
           end
           @_disable_counter_cache = false
         end
@@ -128,7 +102,7 @@ module Paranoia
 
     self
   end
-  alias :restore :restore!
+  alias restore restore!
 
   def get_recovery_window_range(opts)
     return opts[:recovery_window_range] if opts[:recovery_window_range]
@@ -142,7 +116,7 @@ module Paranoia
   end
 
   def paranoia_destroyed?
-    send(paranoia_column) != paranoia_sentinel_value
+    send(paranoia_column) != nil
   end
   alias :deleted? :paranoia_destroyed?
 
@@ -179,7 +153,7 @@ module Paranoia
 
   def paranoia_restore_attributes
     {
-      paranoia_column => paranoia_sentinel_value
+      paranoia_column => nil
     }.merge(timestamp_attributes_with_current_time)
   end
 
@@ -215,7 +189,7 @@ module Paranoia
         end
       end
 
-      if association_data.nil? && association.macro.to_s == "has_one"
+      if association_data.nil? && association.macro.to_s == 'has_one'
         association_class_name = association.klass.name
         association_foreign_key = association.foreign_key
 
@@ -240,55 +214,42 @@ end
 
 ActiveSupport.on_load(:active_record) do
   class ActiveRecord::Base
-    def self.acts_as_paranoid(options={})
+    def self.acts_as_paranoid(options = {})
       alias_method :really_destroyed?, :destroyed?
       alias_method :really_delete, :delete
       alias_method :destroy_without_paranoia, :destroy
 
       include Paranoia
-      class_attribute :paranoia_column, :paranoia_sentinel_value
+      class_attribute :paranoia_column
 
       self.paranoia_column = (options[:column] || :deleted_at).to_s
-      self.paranoia_sentinel_value = options.fetch(:sentinel_value) { Paranoia.default_sentinel_value }
-      def self.paranoia_scope
-        where(paranoia_column => paranoia_sentinel_value)
-      end
+      self.paranoia_scope = -> { where("#{paranoia_column} < NOW()") }
+
       class << self; alias_method :without_deleted, :paranoia_scope end
 
-      unless options[:without_default_scope]
-        default_scope { paranoia_scope }
+      default_scope { paranoia_scope } unless options[:without_default_scope]
+
+      before_restore do
+        self.class.notify_observers(:before_restore, self) if self.class.respond_to?(:notify_observers)
       end
 
-      before_restore {
-        self.class.notify_observers(:before_restore, self) if self.class.respond_to?(:notify_observers)
-      }
-      after_restore {
+      after_restore do
         self.class.notify_observers(:after_restore, self) if self.class.respond_to?(:notify_observers)
-      }
+      end
     end
 
-    # Please do not use this method in production.
-    # Pretty please.
-    def self.I_AM_THE_DESTROYER!
-      # TODO: actually implement spelling error fixes
-    puts %Q{
-      Sharon: "There should be a method called I_AM_THE_DESTROYER!"
-      Ryan:   "What should this method do?"
-      Sharon: "It should fix all the spelling errors on the page!"
-}
+    def self.paranoid?
+      false
     end
 
-    def self.paranoid? ; false ; end
-    def paranoid? ; self.class.paranoid? ; end
+    def paranoid?
+      self.class.paranoid?
+    end
 
     private
 
     def paranoia_column
       self.class.paranoia_column
-    end
-
-    def paranoia_sentinel_value
-      self.class.paranoia_sentinel_value
     end
   end
 end
@@ -301,25 +262,19 @@ module ActiveRecord
       def build_relation(klass, *args)
         relation = super
         return relation unless klass.respond_to?(:paranoia_column)
-        arel_paranoia_scope = klass.arel_table[klass.paranoia_column].eq(klass.paranoia_sentinel_value)
-        if ActiveRecord::VERSION::STRING >= "5.0"
-          relation.where(arel_paranoia_scope)
-        else
-          relation.and(arel_paranoia_scope)
-        end
+        arel_paranoia_scope = klass.arel_table[klass.paranoia_column].eq(nil)
+        relation.where(arel_paranoia_scope)
       end
     end
 
     class UniquenessValidator < ActiveModel::EachValidator
       prepend UniquenessParanoiaValidator
     end
-    
+
     class AssociationNotSoftDestroyedValidator < ActiveModel::EachValidator
       def validate_each(record, attribute, value)
         # if association is soft destroyed, add an error
-        if value.present? && value.deleted?
-          record.errors[attribute] << 'has been soft-deleted'
-        end
+        record.errors[attribute] << 'has been soft-deleted' if value.present? && value.deleted?
       end
     end
   end
