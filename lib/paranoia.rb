@@ -223,7 +223,7 @@ ActiveSupport.on_load(:active_record) do
       class_attribute :paranoia_column
 
       self.paranoia_column = (options[:column] || :deleted_at).to_s
-      self.paranoia_scope = -> { where("#{paranoia_column} < NOW()") }
+      self.paranoia_scope = -> { where("#{self.paranoia_column} < NOW()") }
 
       class << self; alias_method :without_deleted, :paranoia_scope end
 
