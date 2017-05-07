@@ -227,7 +227,7 @@ ActiveSupport.on_load(:active_record) do
 
       class << self; alias_method :without_deleted, :paranoia_scope end
 
-      default_scope { paranoia_scope.call } unless options[:without_default_scope]
+      default_scope { paranoia_scope } unless options[:without_default_scope]
 
       before_restore do
         self.class.notify_observers(:before_restore, self) if self.class.respond_to?(:notify_observers)
