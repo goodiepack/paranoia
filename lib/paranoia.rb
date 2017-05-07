@@ -16,7 +16,7 @@ module Paranoia
     end
 
     def only_deleted
-      with_deleted.where.not("#{paranoia_column} >= NOW()")
+      with_deleted.where("#{paranoia_column} < NOW()")
     end
     alias deleted only_deleted
 
@@ -215,7 +215,7 @@ end
 ActiveSupport.on_load(:active_record) do
   class ActiveRecord::Base
     def self.paranoia_scope
-      where("#{paranoia_column} IS NULL OR #{paranoia_column} >= NOW()")
+      where("#{paranoia_column} IS NULL").or(where("{paranoia_column} >= NOW()"))
     end
 
     def self.acts_as_paranoid(options = {})
