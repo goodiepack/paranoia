@@ -215,7 +215,8 @@ end
 ActiveSupport.on_load(:active_record) do
   class ActiveRecord::Base
     def self.paranoia_scope
-      where(paranoia_column => nil).or(where("#{paranoia_column} >= NOW()"))
+      scoped_quoted_paranoia_column = "#{self.table_name}.#{connection.quote_column_name(paranoia_column)}"
+      where(paranoia_column => nil).or(where("#{scoped_quoted_paranoia_column} >= NOW()"))
     end
 
     def self.acts_as_paranoid(options = {})
