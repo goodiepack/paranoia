@@ -108,11 +108,11 @@ module Paranoia
       # callbacks can be run
       add_to_transaction
       update_columns({
-        paranoia_column => DateTime.parse(stamp)
+        paranoia_column => stamp.is_a?(String) ? DateTime.parse(stamp) : stamp
       })
     elsif !frozen?
       assign_attributes({
-        paranoia_column => DateTime.parse(stamp)
+        paranoia_column => stamp.is_a?(String) ? DateTime.parse(stamp) : stamp
       })
     end
     self
