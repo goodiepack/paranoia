@@ -12,7 +12,7 @@ module Paranoia
     end
 
     def with_deleted
-      unscope :where
+      unscope where: paranoia_column
     end
 
     def only_deleted
