@@ -74,7 +74,7 @@ module Paranoia
     transaction do
       run_callbacks(:destroy) do
         @_disable_counter_cache = deleted?
-        result = delete(stamp)
+        result = delete_at(stamp)
         next result unless result
         each_counter_cached_associations do |association|
           foreign_key = association.reflection.foreign_key.to_sym
