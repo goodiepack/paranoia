@@ -70,6 +70,24 @@ module Paranoia
     end
   end
 
+  def destroy_at(stamp)
+    transaction do
+      run_callbacks(:destroy) do
+        @_disable_counter_cache = deleted?
+        result = delete(stamp)
+        next result unless result
+        each_counter_cached_associations do |association|
+          foreign_key = association.reflection.foreign_key.to_sym
+          next if destroyed_by_association && destroyed_by_association.foreign_key.to_sym == foreign_key
+          next unless send(association.reflection.name)
+          association.decrement_counters
+        end
+        @_disable_counter_cache = false
+        result
+      end
+    end
+  end
+
   def delete
     raise ActiveRecord::ReadOnlyRecord, "#{self.class} is marked as readonly" if readonly?
     if persisted?
@@ -79,6 +97,23 @@ module Paranoia
       update_columns(paranoia_destroy_attributes)
     elsif !frozen?
       assign_attributes(paranoia_destroy_attributes)
+    end
+    self
+  end
+
+  def delete_at(stamp)
+    raise ActiveRecord::ReadOnlyRecord, "#{self.class} is marked as readonly" if readonly?
+    if persisted?
+      # if a transaction exists, add the record so that after_commit
+      # callbacks can be run
+      add_to_transaction
+      update_columns({
+        paranoia_column => DateTime.parse(stamp)
+      })
+    elsif !frozen?
+      assign_attributes({
+        paranoia_column => DateTime.parse(stamp)
+      })
     end
     self
   end
