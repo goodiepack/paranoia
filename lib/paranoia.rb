@@ -301,7 +301,7 @@ module ActiveRecord
       def build_relation(klass, *args)
         relation = super
         return relation unless klass.respond_to?(:paranoia_column)
-        arel_paranoia_scope = klass.arel_table[klass.paranoia_column].lt(DateTime.now)
+        arel_paranoia_scope = klass.arel_table[klass.paranoia_column].gt(DateTime.now)
         relation.where(arel_paranoia_scope)
       end
     end
