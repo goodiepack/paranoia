@@ -16,7 +16,7 @@ module Paranoia
     end
 
     def only_deleted
-      with_deleted.where("#{paranoia_column} < NOW()")
+      with_deleted.where("#{paranoia_column} <= NOW()")
     end
     alias deleted only_deleted
 
@@ -107,13 +107,13 @@ module Paranoia
       # if a transaction exists, add the record so that after_commit
       # callbacks can be run
       add_to_transaction
-      update_columns({
+      update_columns(
         paranoia_column => stamp.is_a?(String) ? DateTime.parse(stamp) : stamp
-      })
+      )
     elsif !frozen?
-      assign_attributes({
+      assign_attributes(
         paranoia_column => stamp.is_a?(String) ? DateTime.parse(stamp) : stamp
-      })
+      )
     end
     self
   end
@@ -124,7 +124,7 @@ module Paranoia
         recovery_window_range = get_recovery_window_range(opts)
         if within_recovery_window?(recovery_window_range) && !@attributes.frozen?
           @_disable_counter_cache = !deleted?
-          write_attribute paranoia_column, nil
+          write_attribute paranoia_column, 'infinity'
           update_columns(paranoia_restore_attributes)
           each_counter_cached_associations do |association|
             association.increment_counters if send(association.reflection.name)
@@ -151,7 +151,7 @@ module Paranoia
   end
 
   def paranoia_destroyed?
-    send(paranoia_column) != nil
+    send(paranoia_column) != DateTime::Infinity.new
   end
   alias :deleted? :paranoia_destroyed?
 
@@ -188,7 +188,7 @@ module Paranoia
 
   def paranoia_restore_attributes
     {
-      paranoia_column => nil
+      paranoia_column => 'infinity'
     }.merge(timestamp_attributes_with_current_time)
   end
 
@@ -250,8 +250,8 @@ end
 ActiveSupport.on_load(:active_record) do
   class ActiveRecord::Base
     def self.paranoia_scope
-      scoped_quoted_paranoia_column = "#{self.table_name}.#{connection.quote_column_name(paranoia_column)}"
-      where(paranoia_column => nil).or(where("#{scoped_quoted_paranoia_column} >= NOW()"))
+      scoped_quoted_paranoia_column = "#{table_name}.#{paranoia_column}"
+      where(scoped_quoted_paranoia_column => (DateTime.now..DateTime::Infinity.new))
     end
 
     def self.acts_as_paranoid(options = {})
@@ -301,7 +301,7 @@ module ActiveRecord
       def build_relation(klass, *args)
         relation = super
         return relation unless klass.respond_to?(:paranoia_column)
-        arel_paranoia_scope = klass.arel_table[klass.paranoia_column].eq(nil)
+        arel_paranoia_scope = klass.arel_table[klass.paranoia_column].lt(DateTime.now)
         relation.where(arel_paranoia_scope)
       end
     end
