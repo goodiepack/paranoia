@@ -151,7 +151,7 @@ module Paranoia
   end
 
   def paranoia_destroyed?
-    send(paranoia_column) != DateTime::Infinity.new
+    send(paranoia_column) != Float::INFINITY
   end
   alias :deleted? :paranoia_destroyed?
 
