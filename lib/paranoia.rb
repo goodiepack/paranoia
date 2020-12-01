@@ -252,7 +252,7 @@ ActiveSupport.on_load(:active_record) do
   class ActiveRecord::Base
     def self.paranoia_scope
       scoped_quoted_paranoia_column = "#{table_name}.#{paranoia_column}"
-      where(scoped_quoted_paranoia_column => (DateTime.now..DateTime::Infinity.new))
+      where("#{scoped_quoted_paranoia_column} >= ? OR #{scoped_quoted_paranoia_column} IS NULL", DateTime.now)
     end
 
     def self.acts_as_paranoid(options = {})
