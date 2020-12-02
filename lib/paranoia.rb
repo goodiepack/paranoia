@@ -17,7 +17,8 @@ module Paranoia
     end
 
     def only_deleted
-      with_deleted.where("#{paranoia_column} <= ?", DateTime.now.to_s(:db))
+      scoped_quoted_paranoia_column = "#{table_name}.#{paranoia_column}"
+      with_deleted.where("#{scoped_quoted_paranoia_column} <= ?", DateTime.now.to_s(:db))
     end
     alias deleted only_deleted
 
